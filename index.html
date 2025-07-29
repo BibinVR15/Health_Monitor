@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Patient Health Dashboard</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f6f9;
+      margin: 20px;
+    }
+    h2 {
+      text-align: center;
+      color: #333;
+    }
+    .dashboard {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      justify-content: center;
+      margin-bottom: 30px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0px 4px 10px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    canvas {
+      max-width: 250px;
+      max-height: 250px;
+    }
+    #report {
+      padding: 20px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0px 4px 10px rgba(0,0,0,0.1);
+      max-width: 900px;
+      margin: auto;
+      text-align: justify;
+      line-height: 1.6;
+    }
+    #report h3 {
+      text-align: center;
+      color: teal;
+    }
+    #report ul {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Health Monitoring Dashboard</h2>
+
+  <div class="dashboard">
+    <div class="card"><h3>Heart Rate (BPM)</h3><canvas id="bpmChart"></canvas></div>
+    <div class="card"><h3>SpO₂ (%)</h3><canvas id="spo2Chart"></canvas></div>
+    <div class="card"><h3>Temperature (°C)</h3><canvas id="tempChart"></canvas></div>
+    <div class="card"><h3>GSR</h3><canvas id="gsrChart"></canvas></div>
+    <div class="card"><h3>Glucose Factor</h3><canvas id="glucoseChart"></canvas></div>
+    <div class="card"><h3>Health Condition</h3><canvas id="healthChart"></canvas></div>
+  </div>
+
+  <div id="report"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyBM42vlKCxEIJDtX0pqfmqm4dKkbggZpmU",
+        authDomain: "glucose-monitor-f642e.firebaseapp.com",
+        databaseURL: "https://glucose-monitor-f642e-default-rtdb.firebaseio.com",
+        projectId: "glucose-monitor-f642e",
+        storageBucket: "glucose-monitor-f642e.appspot.com",
+        messagingSenderId: "430185750468",
+        appId: "1:430185750468:web:f7238b39171afa58280e91",
+        measurementId: "G-G44RN3XR71"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+
+    const healthyBaseline = {
+      avgBPM: 75,
+      avgSpO2: 98,
+      temperature: 37,
+      gsr: 400,
+      glucoseFactor: 0.8
+    };
+
+    const centerTextPlugin = {
+      id: 'centerText',
+      beforeDraw(chart) {
+        const {ctx, chartArea: {width, height}} = chart;
+        ctx.save();
+        ctx.font = '18px Arial';
+        ctx.fillStyle = '#333';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const value = chart.config.data.datasets[0].valueText || chart.config.data.datasets[0].data[0];
+        ctx.fillText(value, width / 2, height / 2);
+      }
+    };
+
+    function createCircularChart(ctx, label, color, maxValue) {
+      return new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: [label],
+          datasets: [{
+            data: [0, maxValue],
+            valueText: "0",
+            backgroundColor: [color, '#eee'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          cutout: '75%',
+          plugins: { legend: { display: false } }
+        },
+        plugins: [centerTextPlugin]
+      });
+    }
+
+    const bpmChart = createCircularChart(document.getElementById('bpmChart'), 'BPM', 'green', 180);
+    const spo2Chart = createCircularChart(document.getElementById('spo2Chart'), 'SpO2', 'blue', 100);
+    const tempChart = createCircularChart(document.getElementById('tempChart'), 'Temp', 'orange', 50);
+    const gsrChart = createCircularChart(document.getElementById('gsrChart'), 'GSR', 'green', 1024);
+    const glucoseChart = createCircularChart(document.getElementById('glucoseChart'), 'Glucose', 'purple', 5);
+    const healthChart = createCircularChart(document.getElementById('healthChart'), 'Health', 'teal', 100);
+
+    let patientData = {};
+
+    const patientRef = ref(database, 'patients/patient1');
+    onValue(patientRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+      patientData = data;
+
+      const glucoseFactor = data.glucoseFactor || 0;
+      let condition = "Normal";
+      let conditionColor = "teal";
+      let score = 100;
+
+      if (data.avgBPM < 60 || data.avgBPM > 120) { score -= 20; condition = "Warning"; conditionColor = "orange"; }
+      if (data.avgSpO2 < 90) { score -= 40; condition = "Critical"; conditionColor = "red"; }
+      if (data.temperature > 38 || data.temperature < 35) { score -= 20; condition = "Warning"; conditionColor = "orange"; }
+      if (data.gsr > 800) { score -= 10; condition = "Warning"; conditionColor = "orange"; }
+
+      bpmChart.data.datasets[0].data = [data.avgBPM || 0, 180 - (data.avgBPM || 0)];
+      bpmChart.data.datasets[0].valueText = `${Math.round(data.avgBPM || 0)} BPM`;
+      bpmChart.update();
+
+      spo2Chart.data.datasets[0].data = [data.avgSpO2 || 0, 100 - (data.avgSpO2 || 0)];
+      spo2Chart.data.datasets[0].valueText = `${Math.round(data.avgSpO2 || 0)} %`;
+      spo2Chart.update();
+
+      tempChart.data.datasets[0].data = [data.temperature || 0, 50 - (data.temperature || 0)];
+      tempChart.data.datasets[0].valueText = `${(data.temperature || 0).toFixed(1)} °C`;
+      tempChart.update();
+
+      gsrChart.data.datasets[0].data = [data.gsr || 0, 1024 - (data.gsr || 0)];
+      gsrChart.data.datasets[0].valueText = `${data.gsr || 0}`;
+      gsrChart.update();
+
+      glucoseChart.data.datasets[0].data = [glucoseFactor, 5 - glucoseFactor];
+      glucoseChart.data.datasets[0].valueText = glucoseFactor.toFixed(2);
+      glucoseChart.update();
+
+      healthChart.data.datasets[0].data = [score, 100 - score];
+      healthChart.data.datasets[0].valueText = condition;
+      healthChart.data.datasets[0].backgroundColor = [conditionColor, '#eee'];
+      healthChart.update();
+
+      // ✅ Generate Detailed Report
+      let report = `<h3>Full Health Report</h3>
+        <p>This report compares your latest health readings with standard healthy ranges. 
+        Deviations are flagged with recommendations for improvement.</p>
+        <ul>`;
+
+      // Heart Rate
+      if (Math.abs(data.avgBPM - healthyBaseline.avgBPM) > 15) {
+        report += `<li><b>Heart Rate:</b> Your average BPM is ${Math.round(data.avgBPM)}. 
+        A healthy adult typically has a BPM of 60–100. Consider stress reduction, adequate sleep, and regular cardio exercise.</li>`;
+      } else {
+        report += `<li><b>Heart Rate:</b> Your BPM (${Math.round(data.avgBPM)}) is within a normal range. Great job!</li>`;
+      }
+
+      // SpO2
+      if (data.avgSpO2 < 94) {
+        report += `<li><b>Oxygen Saturation:</b> Current SpO₂ is ${Math.round(data.avgSpO2)}%. 
+        Healthy values are usually 95–100%. Try breathing exercises and ensure good air circulation. Consult a doctor if it stays low.</li>`;
+      } else {
+        report += `<li><b>Oxygen Saturation:</b> Your SpO₂ (${Math.round(data.avgSpO2)}%) is healthy.</li>`;
+      }
+
+      // Temperature
+      if (data.temperature > 38) {
+        report += `<li><b>Body Temperature:</b> Current temperature is ${(data.temperature).toFixed(1)}°C. 
+        This is above the normal range (36–37.5°C). Stay hydrated and rest; consult a physician if fever persists.</li>`;
+      } else if (data.temperature < 36) {
+        report += `<li><b>Body Temperature:</b> ${(data.temperature).toFixed(1)}°C is lower than average. 
+        Keep warm and check for thyroid or metabolic issues if persistent.</li>`;
+      } else {
+        report += `<li><b>Body Temperature:</b> ${(data.temperature).toFixed(1)}°C is normal.</li>`;
+      }
+
+      // GSR
+      if (data.gsr > healthyBaseline.gsr + 300) {
+        report += `<li><b>GSR (Stress Level):</b> Value ${data.gsr} suggests elevated stress. 
+        Consider meditation, deep breathing, or relaxation techniques.</li>`;
+      } else {
+        report += `<li><b>GSR (Stress Level):</b> Value ${data.gsr} is within a calm range.</li>`;
+      }
+
+      // Glucose Factor
+      if (Math.abs(data.glucoseFactor - healthyBaseline.glucoseFactor) > 0.3) {
+        report += `<li><b>Glucose Factor:</b> ${data.glucoseFactor.toFixed(2)} differs from the healthy baseline (≈0.8). 
+        Watch your diet, reduce sugary foods, and stay active.</li>`;
+      } else {
+        report += `<li><b>Glucose Factor:</b> ${data.glucoseFactor.toFixed(2)} is within a healthy range.</li>`;
+      }
+
+      report += `</ul><p><b>Overall Condition:</b> ${condition}. 
+      Your health score is ${score}/100. Continue monitoring and make adjustments as needed.</p>`;
+
+      document.getElementById('report').innerHTML = report;
+    });
+  </script>
+</body>
+</html>
